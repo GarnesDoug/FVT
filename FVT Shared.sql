@@ -38,7 +38,6 @@ INNER JOIN sgbstdn
       AND sgbstdn_term_code_eff <= sfbetrm_term_code
 WHERE SPRIDEN_ENTITY_IND = 'P'
       AND SPRIDEN_CHANGE_IND IS NULL
---       AND spriden_id = '892537451'
 GROUP BY NSCRecordType
        , NSCSSN
        , NSCStudentID
@@ -217,7 +216,7 @@ SELECT DISTINCT getStuRec.NSCRecordType
          END TotalTuitionAndFeesAssessed
        , CASE
            WHEN getStuRec.NSCRecordType = 'TA'
-             THEN NVL(Budget1.Amount, 0)
+             THEN NVL(Budget1.Amount, 0) + NVL(Budget2.Amount, 0)
          END TotalBooksSuppliesEquipment
        , CASE
            WHEN getStuRec.NSCRecordType = 'TA'
@@ -378,18 +377,8 @@ LEFT JOIN
            , PeriodBudget.MajorCode
            , PeriodBudget.DegreeCode
            , PeriodBudget.ProgramCode
-           , NVL(SUM(PeriodBudget.Amount), 0) + NVL(SUM(AidYearBudget.Amount), 0) Amount
+           , SUM(PeriodBudget.Amount), 0 Amount
     FROM PeriodBudget
-    LEFT JOIN AidYearBudget
-         ON AidYearBudget.NSCRecordType = PeriodBudget.NSCRecordType
-         AND AidYearBudget.NSCAidYear = PeriodBudget.NSCAidYear
-         AND AidYearBudget.NSCPidm = PeriodBudget.NSCPidm
-         AND AidYearBudget.NSCCIPCode = PeriodBudget.NSCCIPCode
-         AND AidYearBudget.LevelCode = PeriodBudget.LevelCode
-         AND AidYearBudget.MajorCode = PeriodBudget.MajorCode
-         AND AidYearBudget.DegreeCode = PeriodBudget.DegreeCode
-         AND AidYearBudget.ProgramCode = PeriodBudget.ProgramCode
-         AND AidYearBudget.Component IN ('Z5BK', 'Z6SP') --**Replace with your Component Codes (RBRACMP_COMP_CODE) for books and supplies.
     WHERE PeriodBudget.Component IN ('Z5BK', 'Z6SP')--**Replace with your Component Codes (RBRAPBC_PBCP_CODE) for books and supplies.
     GROUP BY PeriodBudget.NSCRecordType
            , PeriodBudget.NSCAidYear
@@ -407,6 +396,34 @@ LEFT JOIN
             AND Budget1.MajorCode = getStuRec.MajorCode
             AND Budget1.DegreeCode = getStuRec.DegreeCode
             AND Budget1.ProgramCode = getStuRec.ProgramCode
+LEFT JOIN
+  (
+    SELECT AidYearBudget.NSCRecordType
+           , AidYearBudget.NSCAidYear
+           , AidYearBudget.NSCPidm
+           , AidYearBudget.NSCCIPCode
+           , AidYearBudget.LevelCode
+           , AidYearBudget.MajorCode
+           , AidYearBudget.DegreeCode
+           , AidYearBudget.ProgramCode
+           , SUM(AidYearBudget.Amount) Amount
+    FROM AidYearBudget
+    GROUP BY AidYearBudget.NSCRecordType
+           , AidYearBudget.NSCAidYear
+           , AidYearBudget.NSCPidm
+           , AidYearBudget.NSCCIPCode
+           , AidYearBudget.LevelCode
+           , AidYearBudget.MajorCode
+           , AidYearBudget.DegreeCode
+           , AidYearBudget.ProgramCode
+  ) Budget2 ON Budget2.NSCRecordType = getStuRec.NSCRecordType
+            AND Budget2.NSCAidYear = getStuRec.NSCAidYear
+            AND Budget2.NSCPidm = getStuRec.NSCPidm
+            AND Budget2.NSCCIPCode = getStuRec.NSCCIPCode
+            AND Budget2.LevelCode = getStuRec.LevelCode
+            AND Budget2.MajorCode = getStuRec.MajorCode
+            AND Budget2.DegreeCode = getStuRec.DegreeCode
+            AND Budget2.ProgramCode = getStuRec.ProgramCode
 ------------------------------------------------------------------------
 --Total Grants and Scholarship - From RPAAWRD
 ------------------------------------------------------------------------
