@@ -1,0 +1,1006 @@
+
+WITH NSCList AS
+(
+SELECT NSCRecordType NSCRecordType
+       , NSCSSN NSCSSN
+       , NSCStudentID NSCStudentID
+       , NSCCIPCode NSCCIPCode
+       , NSCAidYear NSCAidYear
+       , spriden_pidm Pidm
+       , spriden_id StudentID
+       , spriden_first_name StudentFirstName
+       , spriden_last_name StudentLastName
+       , sfbetrm_term_code TermCode
+       , TermAndAidYear.AidYear AidYear
+       , MAX(sgbstdn_term_code_eff) SGBSTDNTermCode
+FROM SPRIDEN
+INNER JOIN sfbetrm --Grabs the terms the student is enrolled in 
+      ON sfbetrm_pidm = spriden_pidm
+INNER JOIN spbpers
+      ON spbpers.spbpers_pidm = spriden_pidm
+INNER JOIN
+  (
+    SELECT DISTINCT rfrdefa_aidy_code AidYear
+           , rfrdefa_term_code TermCode
+    FROM rfrdefa
+  ) TermAndAidYear ON TermAndAidYear.TermCode = sfbetrm_term_code
+INNER JOIN 
+  (
+    SELECT em_tmp_1 NSCRecordType
+           , LPAD(em_tmp_2, 9, '0') NSCSSN
+           , em_tmp_3 NSCStudentID
+           , em_tmp_4 NSCCIPCode
+           , em_tmp_5 NSCAidYear
+    FROM em_tmp --The em_tmp table is five columns from the NSC Cohort files. The columns are "Record Type", "Student SSN", "Student ID", "CIPCode", and "Aid Year"
+  ) NSCList ON (NSCList.NSCStudentID = spriden_id AND NSCList.NSCStudentID IS NOT NULL)
+            OR (NSCList.NSCSSN = spbpers_ssn AND NSCList.Nscstudentid IS NULL)
+INNER JOIN sgbstdn
+      ON sgbstdn_pidm = spriden_pidm
+      AND sgbstdn_term_code_eff <= sfbetrm_term_code
+WHERE SPRIDEN_ENTITY_IND = 'P'
+      AND SPRIDEN_CHANGE_IND IS NULL
+      GROUP BY NSCRecordType
+       , NSCSSN
+       , NSCStudentID
+       , NSCCIPCode
+       , NSCAidYear
+       , spriden_pidm
+       , spriden_id
+       , spriden_first_name
+       , spriden_last_name
+       , sfbetrm_term_code
+       , TermAndAidYear.AidYear
+ORDER BY spriden_last_name
+      , spriden_first_name
+      , spriden_id
+      , sfbetrm_term_code
+)
+, getStuRec AS
+(
+SELECT NSCList.NSCRecordType NSCRecordType
+       , NSCList.NSCSSN NSCSSN
+       , NSCList.NSCStudentID NSCStudentID
+       , NSCList.NSCCIPCode NSCCIPCode
+       , NSCList.NSCAidYear NSCAidYear
+       , NSCList.Pidm NSCPidm
+       , NSCList.StudentFirstName NSCStudentFirstName
+       , NSCList.StudentLastName NSCStudentLastName
+       , NSCList.TermCode NSCTermCode
+       , NSCList.AidYear AidYear
+       , NSCList.SGBSTDNTermCode SGBSTDNTermCode
+       , sgbstdn1.sgbstdn_levl_code LevelCode
+       , sgbstdn1.sgbstdn_majr_code_1 MajorCode
+       , sgbstdn1.sgbstdn_degc_code_1 DegreeCode
+       , sgbstdn1.sgbstdn_program_1 ProgramCode
+       , stvmajr.stvmajr_cipc_code
+       , stvmajr.stvmajr_code
+FROM NSCList
+INNER JOIN sgbstdn sgbstdn1
+     ON sgbstdn1.sgbstdn_pidm = NSCList.Pidm
+     AND sgbstdn1.sgbstdn_term_code_eff = NSCList.SGBSTDNTermCode
+INNER JOIN stvmajr
+     ON stvmajr.stvmajr_cipc_code = NSCList.NSCCIPCode
+     AND stvmajr.stvmajr_code = sgbstdn1.sgbstdn_majr_code_1
+WHERE NSCList.AidYear <= SUBSTR(NSCList.NSCAidYear, 3, 2) || SUBSTR(NSCList.NSCAidYear, 7, 2)
+)
+-- , ProgramTermCount AS
+-- (
+-- SELECT NSCRecordType
+--        , NSCAidYear
+--        , NSCSSN
+--        , NSCStudentID
+--        , NSCPidm
+--        , NSCStudentFirstName
+--        , NSCStudentLastName
+--        , NSCCIPCode
+--        , SUBSTR(DegreeCode, 0, 1) DegreeCode
+--        , COUNT(*) ProgramTermCount
+-- FROM getStuRec
+-- GROUP BY NSCRecordType
+--        , NSCAidYear
+--        , NSCSSN
+--        , NSCStudentID
+--        , NSCPidm
+--        , NSCStudentFirstName
+--        , NSCStudentLastName
+--        , NSCCIPCode
+--        , SUBSTR(DegreeCode, 0, 1)
+-- )
+-- , TotalTermCount AS
+-- (
+-- SELECT NSCRecordType
+--        , NSCAidYear
+--        , NSCSSN
+--        , NSCStudentID
+--        , NSCPidm
+--        , NSCStudentFirstName
+--        , NSCStudentLastName
+--        , COUNT(*) TotalTermCount
+-- FROM getStuRec
+-- GROUP BY NSCRecordType
+--        , NSCAidYear
+--        , NSCSSN
+--        , NSCStudentID
+--        , NSCPidm
+--        , NSCStudentFirstName
+--        , NSCStudentLastName
+-- )
+-- , PercentofProgram AS
+-- (
+-- SELECT DISTINCT getStuRec.NSCRecordType
+--        , getStuRec.NSCAidYear
+--        , getStuRec.NSCSSN
+--        , getStuRec.NSCStudentID
+--        , getStuRec.NSCPidm
+--        , getStuRec.NSCStudentFirstName
+--        , getStuRec.NSCStudentLastName
+--        , getStuRec.NSCCIPCode
+--        , getStuRec.DegreeCode
+--        , ProgramTermCount.ProgramTermCount
+--        , TotalTermCount.TotalTermCount
+--        , CASE
+--            WHEN ROUND(ProgramTermCount.ProgramTermCount / TotalTermCount.TotalTermCount, 2) <> 1
+--              THEN 0.5
+--            ELSE 1
+--          END  PercentOfProgram
+-- FROM getStuRec
+-- LEFT JOIN ProgramTermCount
+--      ON ProgramTermCount.NSCRecordType = getStuRec.NSCRecordType
+--      AND ProgramTermCount.NSCAidYear = getStuRec.NSCAidYear
+--      AND ProgramTermCount.NSCPidm = getStuRec.NSCPidm
+--      AND ProgramTermCount.NSCCIPCode = getStuRec.NSCCIPCode
+--      AND ProgramTermCount.DegreeCode = SUBSTR(getStuRec.DegreeCode, 0, 1)
+-- LEFT JOIN TotalTermCount
+--      ON TotalTermCount.NSCRecordType = getStuRec.NSCRecordType
+--      AND TotalTermCount.NSCAidYear = getStuRec.NSCAidYear
+--      AND TotalTermCount.NSCPidm = getStuRec.NSCPidm
+-- )
+--Get the period budget
+, PeriodBudget AS
+(
+SELECT getStuRec.NSCRecordType
+       , getStuRec.NSCAidYear
+       , getStuRec.NSCPidm
+       , getStuRec.NSCStudentID
+       , getStuRec.NSCTermCode
+       , getStuRec.AidYear
+       , getStuRec.NSCCIPCode
+       , getStuRec.LevelCode
+       , getStuRec.MajorCode
+       , getStuRec.DegreeCode
+       , getStuRec.ProgramCode
+       , rbrapbc_pbcp_code Component
+       , rbrapbc_amt Amount
+FROM getStuRec
+INNER JOIN rbrapbc
+     ON rbrapbc_pidm = getStuRec.NSCPidm
+     AND SUBSTR(rbrapbc_period, 0, 6) = getStuRec.NSCTermCode
+     AND rbrapbc_pbtp_code = 'CAMP' --**Replace with your budget type code
+)
+--Get the Aid Year Budget
+, AidYearBudget AS
+(
+SELECT DISTINCT getStuRec.NSCRecordType NSCRecordType
+       , getStuRec.NSCAidYear NSCAidYear
+       , getStuRec.NSCPidm NSCPidm
+       , getStuRec.NSCStudentID NSCStudentID
+       , getStuRec.AidYear AidYear
+       , getStuRec.NSCCIPCode NSCCIPCode
+       , getStuRec.LevelCode LevelCode
+       , getStuRec.MajorCode MajorCode
+       , getStuRec.DegreeCode DegreeCode
+       , getStuRec.ProgramCode ProgramCode
+       , rbracmp.rbracmp_comp_code Component
+       , rbracmp.rbracmp_amt Amount
+FROM getStuRec
+INNER JOIN rbracmp
+     ON rbracmp.rbracmp_pidm = getStuRec.NSCPidm
+     AND rbracmp.rbracmp_aidy_code = getStuRec.AidYear
+     AND rbracmp.rbracmp_btyp_code = 'CAMP' --**Replace with your budget type code
+     --Books and Supplies for Aid Year Budget. These are the only components that matter for older years. We switched to Period Based Budgets in AIDY 2021.
+     AND rbracmp.rbracmp_comp_code IN ('Z5BK', 'Z6SP') --**Replace with your books and supplies component codes
+)
+, FinAid AS
+(
+SELECT getStuRec.NSCRecordType NSCRecordType
+       , getStuRec.NSCPidm NSCPidm
+       , getStuRec.NSCSSN NSCSSN
+       , getStuRec.NSCStudentID NSCStudentID
+       , getStuRec.NSCStudentFirstName NSCStudentFirstName
+       , getStuRec.NSCStudentLastName NSCStudentLastName
+       , getStuRec.NSCCIPCode NSCCIPCode
+       , getStuRec.NSCAidYear NSCAidYear
+       , getStuRec.AidYear AidYear
+       , getStuRec.NSCTermCode NSCTermCode
+       , getStuRec.SGBSTDNTermCode SGBSTDNTermCode
+       , getStuRec.LevelCode LevelCode
+       , getStuRec.MajorCode MajorCode
+       , getStuRec.DegreeCode DegreeCode
+       , getStuRec.ProgramCode ProgramCode
+       , rpratrm_fund_code FundCode
+       , rfrbase.rfrbase_fsrc_code FundSource
+       , rfrbase.rfrbase_ftyp_code FundType
+       , rpratrm_paid_amt PaidAmount
+FROM getStuRec
+LEFT JOIN rpratrm
+     ON rpratrm.rpratrm_pidm = getStuRec.NSCPIDM
+     AND SUBSTR(rpratrm.rpratrm_period, 0, 6) = getStuRec.NSCTermCode
+     AND rpratrm.rpratrm_paid_amt > 0
+LEFT JOIN rfrbase
+     ON rfrbase.rfrbase_fund_code = rpratrm.rpratrm_fund_code
+ORDER BY getStuRec.NSCStudentLastName
+      , getStuRec.NSCStudentFirstName
+      , getStuRec.NSCStudentID
+      , getStuRec.NSCTermCode
+)
+, ChargesAssessed AS
+(
+SELECT getStuRec.NSCRecordType NSCRecordType
+       , getStuRec.NSCPidm NSCPidm
+       , getStuRec.NSCSSN NSCSSN
+       , getStuRec.NSCStudentID NSCStudentID
+       , getStuRec.NSCStudentFirstName NSCStudentFirstName
+       , getStuRec.NSCStudentLastName NSCStudentLastName
+       , getStuRec.NSCCIPCode NSCCIPCode
+       , getStuRec.NSCAidYear NSCAidYear
+       , getStuRec.AidYear AidYear
+       , getStuRec.NSCTermCode NSCTermCode
+       , getStuRec.SGBSTDNTermCode SGBSTDNTermCode
+       , getStuRec.LevelCode LevelCode
+       , getStuRec.MajorCode MajorCode
+       , getStuRec.DegreeCode DegreeCode
+       , getStuRec.ProgramCode ProgramCode
+       , tbbdetc_type_ind TypeInd
+       , tbbdetc_dcat_code CatCode
+       , tbraccd_detail_code DetailCode
+       , tbraccd_amount Amount
+FROM getStuRec
+LEFT JOIN tbraccd
+     ON tbraccd.tbraccd_pidm = getStuRec.NSCPidm
+     AND 
+       (
+         (
+           --Custom code for programs with quarters such as 202211, 202212, etc. 
+           getStuRec.MajorCode IN ('EXCO', 'GSCM', 'MKT', 'OMBA')
+           AND getStuRec.DegreeCode IN ('CERTG', 'MBA')
+           AND 
+             (
+               tbraccd.tbraccd_term_code = getStuRec.NSCTermCode
+               OR
+                 (
+                   SUBSTR(tbraccd.tbraccd_term_code, 6, 1) IN ('1', '2', '3', '4')
+                   AND SUBSTR(tbraccd.tbraccd_term_code, 0, 5) || '0' = getStuRec.NSCTermCode
+                 )
+             )
+         )
+         OR 
+           --Some trimester students had payments in the semester amounts, therefore the first five characters must match for the term code.
+           (
+              SUBSTR(tbraccd.tbraccd_term_code, 0, 5) = SUBSTR(getStuRec.NSCTermCode, 0, 5)
+              AND SUBSTR(tbraccd.tbraccd_term_code, 6, 1) IN ('0', '3', '4')
+           )
+       )
+LEFT JOIN tbbdetc
+     ON tbbdetc.tbbdetc_detail_code = tbraccd.tbraccd_detail_code
+)
+, MasterList AS
+(
+SELECT DISTINCT getStuRec.NSCRecordType
+       , '00354500' OPEID
+       , getStuRec.NSCAidYear
+       , getStuRec.NSCSSN
+       , getStuRec.NSCPidm
+       , getStuRec.NSCStudentID
+       , getStuRec.NSCStudentFirstName
+       , getStuRec.NSCStudentLastName
+       , getStuRec.NSCCIPCode
+       , CASE
+           WHEN getStuRec.DegreeCode = 'ES' 
+             THEN '05'
+           WHEN getStuRec.DegreeCode = 'PB'
+             THEN '04'
+           WHEN SUBSTR(getStuRec.DegreeCode, 0, 1) = 'B'
+             THEN '03'
+           WHEN SUBSTR(getStuRec.DegreeCode, 0, 1) = 'C' 
+             THEN '08'
+           WHEN SUBSTR(getStuRec.DegreeCode, 0, 1) IN ('D', 'E', 'J', 'O', 'P')
+             THEN '06'
+           WHEN SUBSTR(getStuRec.DegreeCode, 0, 1) IN ('I', 'L', 'M')
+             THEN '05'
+           WHEN SUBSTR(getStuRec.DegreeCode, 0, 1) = 'N' 
+             THEN 'Non-Degree Seeking'
+           ELSE 'Unknown'
+         END NSCCredentialCode
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'TA'
+             THEN ROUND(NVL(FinAid1.Amount,0), 0)
+           ELSE 0
+         END TotalPrivateLoans
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'TA' AND ChargesAssessed1.Amount > 0
+             THEN ROUND(NVL(ChargesAssessed1.Amount, 0), 0)
+           WHEN getStuRec.NSCRecordType = 'TA' AND ChargesAssessed1.Amount <= 0
+             THEN 0
+           ELSE 0
+         END TotalInstDebt
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'TA'
+             THEN ROUND(NVL(ChargesAssessed2.Amount, 0), 0)
+           ELSE 0
+         END TotalTuitionAndFeesAssessed
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'TA'
+             THEN ROUND(NVL(Budget1.Amount, 0) + NVL(Budget2.Amount, 0), 0)
+           ELSE 0
+         END TotalBooksSuppliesEquipment
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'TA'
+             THEN ROUND(NVL(FinAid2.Amount, 0) + NVL(ChargesAssessed3.Amount, 0) + NVL(ChargesAssessed4.Amount, 0) + NVL(ChargesAssessed5.Amount, 0), 0)
+           ELSE 0
+         END TotalGrantsAndScholarships
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'AA'
+             THEN ROUND(NVL(PeriodBudget1.Amount, 0), 0)
+           ELSE 0
+         END AnnualCOA
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'AA'
+             THEN ROUND(NVL(ChargesAssessed6.Amount, 0), 0)
+           ELSE 0
+         END AnnualTuitionAndFeesAssessed
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'AA'
+             THEN ROUND(NVL(PeriodBudget2.Amount, 0), 0)
+           ELSE 0
+         END AnnualBooksSuppliesEquipment
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'AA'
+             THEN ROUND(NVL(PeriodBudget3.Amount, 0), 0)
+           ELSE 0
+         END AnnualHousingAndFood
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'AA'
+             THEN ROUND(NVL(FinAid3.Amount, 0) + NVL(ChargesAssessed7.Amount, 0), 0)
+           ELSE 0
+         END AnnualINSTGrantsAndScholarships
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'AA'
+             THEN ROUND(NVL(FinAid4.Amount, 0), 0)
+           ELSE 0
+         END AnnualOtherStateTribalPrivateGrantsAndScholarships
+       , CASE
+           WHEN getStuRec.NSCRecordType = 'AA'
+             THEN ROUND(NVL(FinAid5.Amount, 0), 0)
+           ELSE 0
+         END AnnualPrivateLoanAmount
+FROM getStuRec
+------------------------------------------------------------------------
+--Total Private Loans
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT FinAid.NSCRecordType NSCRecordType
+           , FinAid.NSCAidYear NSCAidYear
+           , FinAid.NSCPidm NSCPidm
+           , FinAid.NSCCIPCode NSCCIPCode
+           , FinAid.DegreeCode DegreeCode
+           , SUM(FinAid.PaidAmount) Amount
+    FROM FinAid
+    WHERE (
+            (
+              FinAid.FundSource IN ('STAT', 'EXTN', 'INST') --**Replace with your FundSource Codes (RFRBASE_FSRC_CODE) that you use to indicate Private Loans.
+              AND FinAid.FundType IN ('ALTL', 'LOAN') --**Replace with your FundType Codes (RFRBASE_FTYP_CODE) that you use to indicate Private Loans.
+            )
+            OR
+            (
+              FinAid.FundCode = 'NSL'
+            )
+          )
+    GROUP BY FinAid.NSCRecordType
+           , FinAid.NSCAidYear
+           , FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , FinAid.DegreeCode
+  ) FinAid1 ON FinAid1.NSCRecordType = getStuRec.NSCRecordType
+            AND FinAid1.NSCAidYear = getStuRec.NSCAidYear
+            AND FinAid1.NSCPidm = getStuRec.NSCPidm
+            AND FinAid1.NSCCIPCode = getStuRec.NSCCIPCode
+            AND FinAid1.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Total Institutional Debt
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+           , NVL
+               (
+                 SUM
+                   (
+                     CASE
+                       WHEN ChargesAssessed.TypeInd = 'C'
+                         THEN ChargesAssessed.Amount
+                       ELSE ChargesAssessed.Amount * -1
+                     END
+                   )
+               , 0) Amount
+    FROM ChargesAssessed
+    GROUP BY ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+  ) ChargesAssessed1 ON ChargesAssessed1.NSCRecordType = getStuRec.NSCRecordType
+                     AND ChargesAssessed1.NSCAidYear = getStuRec.NSCAidYear
+                     AND ChargesAssessed1.NSCPidm = getStuRec.NSCPidm
+                     AND ChargesAssessed1.NSCCIPCode = getStuRec.NSCCIPCode
+                     AND ChargesAssessed1.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Total Tuition And Fees Assessed
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+           , SUM(ChargesAssessed.Amount) Amount
+    FROM ChargesAssessed
+    WHERE ChargesAssessed.CatCode IN ('TUI', 'FEE') --**Replace with your tuition and fees detail cat codes (TBBDETC_DCAT_CODE) for Tuition and Fees.
+    GROUP BY ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+  ) ChargesAssessed2 ON ChargesAssessed2.NSCRecordType = getStuRec.NSCRecordType
+                     AND ChargesAssessed2.NSCAidYear = getStuRec.NSCAidYear
+                     AND ChargesAssessed2.NSCPidm = getStuRec.NSCPidm
+                     AND ChargesAssessed2.NSCCIPCode = getStuRec.NSCCIPCode
+                     AND ChargesAssessed2.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Total Books Supplies And Equipment Allowance
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT PeriodBudget.NSCRecordType
+           , PeriodBudget.NSCAidYear
+           , PeriodBudget.NSCPidm
+           , PeriodBudget.NSCCIPCode
+           , PeriodBudget.DegreeCode
+           , SUM(PeriodBudget.Amount) Amount
+    FROM PeriodBudget
+    WHERE PeriodBudget.Component IN ('Z5BK', 'Z6SP')--**Replace with your Component Codes (RBRAPBC_PBCP_CODE) for books and supplies.
+    GROUP BY PeriodBudget.NSCRecordType
+           , PeriodBudget.NSCAidYear
+           , PeriodBudget.NSCPidm
+           , PeriodBudget.NSCCIPCode
+           , PeriodBudget.DegreeCode
+  ) Budget1 ON Budget1.NSCRecordType = getStuRec.NSCRecordType
+            AND Budget1.NSCAidYear = getStuRec.NSCAidYear
+            AND Budget1.NSCPidm = getStuRec.NSCPidm
+            AND Budget1.NSCCIPCode = getStuRec.NSCCIPCode
+            AND Budget1.DegreeCode = getStuRec.DegreeCode
+LEFT JOIN
+  (
+    SELECT AidYearBudget.NSCRecordType
+           , AidYearBudget.NSCAidYear
+           , AidYearBudget.NSCPidm
+           , AidYearBudget.NSCCIPCode
+           , AidYearBudget.DegreeCode
+           , SUM(AidYearBudget.Amount) Amount
+    FROM AidYearBudget
+    GROUP BY AidYearBudget.NSCRecordType
+           , AidYearBudget.NSCAidYear
+           , AidYearBudget.NSCPidm
+           , AidYearBudget.NSCCIPCode
+           , AidYearBudget.DegreeCode
+  ) Budget2 ON Budget2.NSCRecordType = getStuRec.NSCRecordType
+            AND Budget2.NSCAidYear = getStuRec.NSCAidYear
+            AND Budget2.NSCPidm = getStuRec.NSCPidm
+            AND Budget2.NSCCIPCode = getStuRec.NSCCIPCode
+            AND Budget2.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Total Grants and Scholarship - From RPAAWRD
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT FinAid.NSCRecordType
+           , FinAid.NSCAidYear
+           , FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , FinAid.DegreeCode
+           , NVL(SUM(FinAid.PaidAmount), 0) Amount
+    FROM FinAid
+    WHERE FinAid.FundSource IN ('INST', 'UFUN', 'UNDE', 'UNDO', 'FUND', 'FUCM', 'FUDN', 'FUDE', 'STAT', 'EXTN') --**Replace with your FundSource Codes (RFRBASE_FSRC_CODE) that you use to indicate Grants or Scholarships.
+           AND FinAid.FundType IN ('DEPT', 'ERMS', 'ERMT', 'GRNT', 'OTHR', 'SCHL', 'SCHP', 'SCHT', 'SCHO') --**Replace with your FundType Codes (RFRBASE_FTYP_CODE) that you use to indicate Grants or Scholarships.
+    GROUP BY FinAid.NSCRecordType
+           , FinAid.NSCAidYear
+           , FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , FinAid.DegreeCode
+  ) FinAid2 ON FinAid2.NSCRecordType = getStuRec.NSCRecordType
+            AND FinAid2.NSCAidYear = getStuRec.NSCAidYear
+            AND FinAid2.NSCPidm = getStuRec.NSCPidm
+            AND FinAid2.NSCCIPCode = getStuRec.NSCCIPCode
+            AND FinAid2.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Total Grants and Scholarships - Paid to Student Accounts Only
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+           , SUM(ChargesAssessed.Amount) Amount
+    FROM ChargesAssessed
+    INNER JOIN tbbcont
+          ON tbbcont_detail_pay_code = ChargesAssessed.DetailCode
+          AND tbbcont_term_code = ChargesAssessed.NSCTermCode
+    LEFT JOIN rfrbase
+         ON rfrbase.rfrbase_detail_code = ChargesAssessed.DetailCode
+    LEFT JOIN rpratrm
+         ON rpratrm_pidm = ChargesAssessed.NSCPidm
+         AND rpratrm_fund_code = rfrbase_fund_code
+         AND rpratrm_term_code = ChargesAssessed.NSCTermCode
+    WHERE ChargesAssessed.TypeInd = 'P'
+          AND (rpratrm_paid_amt IS NULL OR rpratrm_paid_amt = 0)
+          AND ChargesAssessed.DetailCode <> 'F141'
+    GROUP BY ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+  ) ChargesAssessed3 ON ChargesAssessed3.NSCRecordType = getStuRec.NSCRecordType
+                     AND ChargesAssessed3.NSCAidYear = getStuRec.NSCAidYear
+                     AND ChargesAssessed3.NSCPidm = getStuRec.NSCPidm
+                     AND ChargesAssessed3.NSCCIPCode = getStuRec.NSCCIPCode
+                     AND ChargesAssessed3.DegreeCode = getStuRec.DegreeCode
+LEFT JOIN
+  (
+    SELECT ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+           , SUM(ChargesAssessed.Amount) Amount
+    FROM ChargesAssessed
+    WHERE ChargesAssessed.DetailCode IN ('EF03', 'EF22', 'EF57', 'EFAC', 'EFTA', 'EFTB', 'EFTC', 'EFTD', 'EFTE', 'EFTF', 'EFTG', 'EFTH', 'EFTI', 'EFTJ', 'EFTK', 'EFTR', 'EFTT', 'EFTV', 'EFTY','CHKR', 'CHKS', 'REM')
+    GROUP BY ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+    
+  )  ChargesAssessed4 ON ChargesAssessed4.NSCRecordType = getStuRec.NSCRecordType
+                     AND ChargesAssessed4.NSCAidYear = getStuRec.NSCAidYear
+                     AND ChargesAssessed4.NSCPidm = getStuRec.NSCPidm
+                     AND ChargesAssessed4.NSCCIPCode = getStuRec.NSCCIPCode
+                     AND ChargesAssessed4.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Total Meal Plan Scholarship - Only Paid to Student Account
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+           , SUM(ChargesAssessed.Amount) Amount
+    FROM ChargesAssessed
+    WHERE ChargesAssessed.DetailCode IN ('221V', '5DAY', 'MSCH') --**Replace for any detail codes (TBRACCD_DETAIL_CODE) you may have that do not have their corresponding amounts on RPAAWRD. We separted meal plan detail codes, but you could get rid of this CTE and just put all yours in the CTE above. Don't forget to take it out of the SELECT as well!
+    GROUP BY ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+  ) ChargesAssessed5 ON ChargesAssessed5.NSCRecordType = getStuRec.NSCRecordType
+                     AND ChargesAssessed5.NSCPidm = getStuRec.NSCPidm
+                     AND ChargesAssessed5.NSCCIPCode = getStuRec.NSCCIPCode
+                     AND ChargesAssessed5.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Annual COA
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT PeriodBudget.NSCRecordType
+           , PeriodBudget.NSCAidYear
+           , PeriodBudget.AidYear
+           , PeriodBudget.NSCPidm
+           , PeriodBudget.NSCCIPCode
+           , PeriodBudget.DegreeCode
+           , SUM(PeriodBudget.Amount) Amount
+    FROM PeriodBudget
+    WHERE PeriodBudget.AidYear = SUBSTR(PeriodBudget.NSCAidYear, 3, 2) || SUBSTR(PeriodBudget.NSCAidYear, 7, 2)
+    GROUP BY PeriodBudget.NSCRecordType
+           , PeriodBudget.NSCAidYear
+           , PeriodBudget.AidYear
+           , PeriodBudget.NSCPidm
+           , PeriodBudget.NSCCIPCode
+           , PeriodBudget.DegreeCode
+  ) PeriodBudget1 ON PeriodBudget1.NSCRecordType = getStuRec.NSCRecordType
+                  AND PeriodBudget1.NSCPidm = getStuRec.NSCPidm
+                  AND PeriodBudget1.NSCCIPCode = getStuRec.NSCCIPCode
+                  AND PeriodBudget1.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Annual Tuition and Fees Assessed
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.AidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+           , SUM(ChargesAssessed.Amount) Amount
+    FROM ChargesAssessed
+    WHERE ChargesAssessed.CatCode IN ('TUI', 'FEE') --**Replace with your tuition and fees detail cat codes (TBBDETC_DCAT_CODE) for Tuition and Fees.
+          AND ChargesAssessed.AidYear = SUBSTR(ChargesAssessed.NSCAidYear, 3, 2) || SUBSTR(ChargesAssessed.NSCAidYear, 7, 2)
+    GROUP BY ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.AidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+  ) ChargesAssessed6 ON ChargesAssessed6.NSCRecordType = getStuRec.NSCRecordType
+                     AND ChargesAssessed6.NSCPidm = getStuRec.NSCPidm
+                     AND ChargesAssessed6.NSCCIPCode = getStuRec.NSCCIPCode
+                     AND ChargesAssessed6.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Annual Books, Supplies, and Equipment Allowance
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT PeriodBudget.NSCRecordType
+           , PeriodBudget.NSCAidYear
+           , PeriodBudget.AidYear
+           , PeriodBudget.NSCPidm
+           , PeriodBudget.NSCCIPCode
+           , PeriodBudget.DegreeCode
+           , SUM(PeriodBudget.Amount) Amount
+    FROM PeriodBudget
+    WHERE PeriodBudget.Component IN ('Z5BK', 'Z6SP') --**Replace with your Component Codes (RBRAPBC_PBCP_CODE) for books and supplies.
+          AND PeriodBudget.AidYear = SUBSTR(PeriodBudget.NSCAidYear, 3, 2) || SUBSTR(PeriodBudget.NSCAidYear, 7, 2)
+    GROUP BY PeriodBudget.NSCRecordType
+           , PeriodBudget.NSCAidYear
+           , PeriodBudget.AidYear
+           , PeriodBudget.NSCPidm
+           , PeriodBudget.NSCCIPCode
+           , PeriodBudget.DegreeCode
+  ) PeriodBudget2 ON PeriodBudget2.NSCRecordType = getStuRec.NSCRecordType
+                  AND PeriodBudget2.NSCPidm = getStuRec.NSCPidm
+                  AND PeriodBudget2.NSCCIPCode = getStuRec.NSCCIPCode
+                  AND PeriodBudget2.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Annual Housing and Food
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT PeriodBudget.NSCRecordType
+           , PeriodBudget.NSCAidYear
+           , PeriodBudget.AidYear
+           , PeriodBudget.NSCPidm
+           , PeriodBudget.NSCCIPCode
+           , PeriodBudget.DegreeCode
+           , SUM(PeriodBudget.Amount) Amount
+    FROM PeriodBudget
+    WHERE PeriodBudget.Component IN ('Z3HO', 'Z4FO') --**Replace with your Component Codes (RBRAPBC_PBCP_CODE) for housing and food.
+          AND PeriodBudget.AidYear = SUBSTR(PeriodBudget.NSCAidYear, 3, 2) || SUBSTR(PeriodBudget.NSCAidYear, 7, 2)
+    GROUP BY PeriodBudget.NSCRecordType
+           , PeriodBudget.NSCAidYear
+           , PeriodBudget.AidYear
+           , PeriodBudget.NSCPidm
+           , PeriodBudget.NSCCIPCode
+           , PeriodBudget.DegreeCode
+  ) PeriodBudget3 ON PeriodBudget3.NSCRecordType = getStuRec.NSCRecordType
+                  AND PeriodBudget3.NSCPidm = getStuRec.NSCPidm
+                  AND PeriodBudget3.NSCCIPCode = getStuRec.NSCCIPCode
+                  AND PeriodBudget3.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Annual Institutional Grants and Scholarships
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT FinAid.NSCRecordType
+           , FinAid.NSCAidYear
+           , FinAid.AidYear
+           , FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , FinAid.DegreeCode
+           , SUM(FinAid.PaidAmount) Amount
+    FROM FinAid
+    WHERE FinAid.FundSource IN ('INST', 'FUCM', 'FUDE', 'FUDN', 'FUND', 'UFUN', 'UNDE', 'UNDO') --**Replace with your FundSource Codes (RFRBASE_FSRC_CODE) that you use to indicate Grants and Scholarships
+          AND FinAid.FundType IN ('DEPT', 'ERMS', 'ERMT', 'GRNT', 'OTHR', 'SCHL', 'SCHP', 'SCHT', 'SCHO') --**Replace with your FundType Codes (RFRBASE_FTYP_CODE) that you use to indicate Grants and Scholarships
+          AND FinAid.AidYear = SUBSTR(FinAid.NSCAidYear, 3, 2) || SUBSTR(FinAid.NSCAidYear, 7, 2)
+    GROUP BY FinAid.NSCRecordType
+           , FinAid.NSCAidYear
+           , FinAid.AidYear
+           , FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , FinAid.DegreeCode
+  ) FinAid3 ON FinAid3.NSCRecordType = getStuRec.NSCRecordType
+            AND FinAid3.NSCAidYear = getStuRec.NSCAidYear
+            AND FinAid3.NSCPidm = getStuRec.NSCPidm
+            AND FinAid3.NSCCIPCode = getStuRec.NSCCIPCode
+            AND FinAid3.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Annual Institutional Grants and Scholarships - Only on Student Accounts
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.AidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+           , SUM(ChargesAssessed.Amount) Amount
+    FROM ChargesAssessed
+    WHERE ChargesAssessed.DetailCode IN ('221V', 'BP99','MSCH') --**Replace with your tuition and fees detail cat codes (TBBDETC_DCAT_CODE) for grants or scholarships that are not paid on RPAAWRD.
+          AND ChargesAssessed.AidYear = SUBSTR(ChargesAssessed.NSCAidYear, 3, 2) || SUBSTR(ChargesAssessed.NSCAidYear, 7, 2)
+    GROUP BY ChargesAssessed.NSCRecordType
+           , ChargesAssessed.NSCAidYear
+           , ChargesAssessed.AidYear
+           , ChargesAssessed.NSCPidm
+           , ChargesAssessed.NSCCIPCode
+           , ChargesAssessed.DegreeCode
+  ) ChargesAssessed7 ON ChargesAssessed7.NSCRecordType = getStuRec.NSCRecordType
+                     AND ChargesAssessed7.NSCPidm = getStuRec.NSCPidm
+                     AND ChargesAssessed7.NSCCIPCode = getStuRec.NSCCIPCode
+                     AND ChargesAssessed7.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Annual Other State, Tribal, or Private Grants and Scholarships
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT FinAid.NSCRecordType
+           , FinAid.NSCAidYear
+           , FinAid.AidYear
+           , FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , FinAid.DegreeCode
+           , SUM(FinAid.PaidAmount) Amount
+    FROM FinAid
+    WHERE FinAid.FundSource IN ('STAT', 'EXTN') --**Replace with your FundSource Codes (RFRBASE_FSRC_CODE) that you use to indicate Other State, Tirbal, or Private Grants/Scholarships
+          AND FinAid.FundType IN ('SCHP', 'GRNT', 'SCHO', 'ERMS') --**Replace with your FundType Codes (RFRBASE_FTYP_CODE) that you use to indicate Other State, Tirbal, or Private Grants/Scholarships
+          AND FinAid.AidYear = SUBSTR(FinAid.NSCAidYear, 3, 2) || SUBSTR(FinAid.NSCAidYear, 7, 2)
+    GROUP BY FinAid.NSCRecordType
+           , FinAid.NSCAidYear
+           , FinAid.AidYear
+           , FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , FinAid.DegreeCode
+  ) FinAid4 ON FinAid4.NSCRecordType = getStuRec.NSCRecordType
+            AND FinAid4.NSCAidYear = getStuRec.NSCAidYear
+            AND FinAid4.NSCPidm = getStuRec.NSCPidm
+            AND FinAid4.NSCCIPCode = getStuRec.NSCCIPCode
+            AND FinAid4.DegreeCode = getStuRec.DegreeCode
+------------------------------------------------------------------------
+--Annual Private Loans
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT FinAid.NSCRecordType
+           , FinAid.NSCAidYear
+           , FinAid.AidYear
+           , FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , FinAid.DegreeCode
+           , SUM(FinAid.PaidAmount) Amount
+    FROM FinAid
+    WHERE (
+            (
+              FinAid.FundSource IN ('STAT', 'EXTN', 'INST') --**Replace with your FundSource Codes (RFRBASE_FSRC_CODE) that you use to indicate Private Loans.
+              AND FinAid.FundType IN ('ALTL', 'LOAN') --**Replace with your FundType Codes (RFRBASE_FTYP_CODE) that you use to indicate Private Loans.
+            )
+            OR
+            (
+              FinAid.FundCode = 'NSL'
+            )
+          )
+          AND FinAid.AidYear = SUBSTR(FinAid.NSCAidYear, 3, 2) || SUBSTR(FinAid.NSCAidYear, 7, 2)
+    GROUP BY FinAid.NSCRecordType
+           , FinAid.NSCAidYear
+           , FinAid.AidYear
+           , FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , FinAid.DegreeCode
+  ) FinAid5 ON FinAid5.NSCRecordType = getStuRec.NSCRecordType
+            AND FinAid5.NSCAidYear = getStuRec.NSCAidYear
+            AND FinAid5.NSCPidm = getStuRec.NSCPidm
+            AND FinAid5.NSCCIPCode = getStuRec.NSCCIPCode
+            AND FinAid5.DegreeCode = getStuRec.DegreeCode
+-- LEFT JOIN PercentOfProgram
+--      ON PercentOfProgram.NSCRecordType = getStuRec.NSCRecordType
+--      AND PercentOfProgram.NSCAidYear = getStuRec.NSCAidYear
+--      AND PercentOfProgram.NSCPidm = getStuRec.NSCPidm
+--      AND PercentOfProgram.NSCCIPCode = getStuRec.NSCCIPCode
+--      AND PercentOfProgram.DegreeCode = getStuRec.DegreeCode
+ORDER BY getStuRec.NSCStudentLastName
+      , getStuRec.NSCStudentFirstName
+      , getStuRec.NSCStudentID
+      , getStuRec.NSCRecordType
+)
+, FVTList AS
+(
+SELECT MasterList.NSCRecordType
+       , MasterList.OPEID
+       , MasterList.NSCAidYear
+       , MasterList.NSCSSN
+       , MasterList.NSCPidm
+       , MasterList.NSCStudentID
+       , MasterList.NSCStudentFirstName
+       , MasterList.NSCStudentLastName
+       , MasterList.NSCCIPCode
+       , MasterList.NSCCredentialCode
+       , ROUND(SUM(MasterList.TotalPrivateLoans), 0) TotalPrivateLoans
+       , ROUND(SUM(MasterList.TotalInstDebt), 0) TotalInstDebt
+       , ROUND(SUM(MasterList.TotalTuitionAndFeesAssessed), 0) TotalTuitionAndFeesAssessed
+       , ROUND(SUM(MasterList.TotalBooksSuppliesEquipment), 0) TotalBooksSuppliesEquipment
+       , ROUND(SUM(MasterList.TotalGrantsAndScholarships), 0) TotalGrantsAndScholarships
+       , ROUND(SUM(MasterList.AnnualCOA), 0) AnnualCOA
+       , ROUND(SUM(MasterList.AnnualTuitionAndFeesAssessed), 0) AnnualTuitionAndFeesAssessed
+       , ROUND(SUM(MasterList.AnnualBooksSuppliesEquipment), 0) AnnualBooksSuppliesEquipment
+       , ROUND(SUM(MasterList.AnnualHousingAndFood), 0) AnnualHousingAndFood
+       , ROUND(SUM(MasterList.AnnualInstGrantsAndScholarships), 0) AnnualInstGrantsAndScholarships
+       , ROUND(SUM(MasterList.AnnualOtherStateTribalPrivateGrantsAndScholarships), 0) AnnualOtherStateTribalPrivateGrantsAndScholarships
+       , ROUND(SUM(MasterList.AnnualPrivateLoanAmount), 0) AnnualPrivateLoanAmount
+       , CASE
+           WHEN FinAid6.NSCPidm IS NULL
+             THEN 'T'
+           ELSE 'N'
+         END InvalidFlag
+FROM MasterList
+------------------------------------------------------------------------
+--Invalid Flag - Student did not receive Title IV Aid
+------------------------------------------------------------------------
+LEFT JOIN
+  (
+    SELECT DISTINCT FinAid.NSCPidm
+           , FinAid.NSCCIPCode
+           , CASE
+               WHEN FinAid.DegreeCode = 'ES' 
+                 THEN '05'
+               WHEN FinAid.DegreeCode = 'PB'
+                 THEN '04'
+               WHEN SUBSTR(FinAid.DegreeCode, 0, 1) = 'B'
+                 THEN '03'
+               WHEN SUBSTR(FinAid.DegreeCode, 0, 1) = 'C' 
+                 THEN '08'
+               WHEN SUBSTR(FinAid.DegreeCode, 0, 1) IN ('D', 'E', 'J', 'O', 'P')
+                 THEN '06'
+               WHEN SUBSTR(FinAid.DegreeCode, 0, 1) IN ('I', 'L', 'M')
+                 THEN '05'
+               WHEN SUBSTR(FinAid.DegreeCode, 0, 1) = 'N' 
+                 THEN 'Non-Degree Seeking'
+               ELSE 'Unknown'
+             END NSCCredentialCode
+    FROM FinAid
+    WHERE FinAid.FundSource = 'FDRL'
+          AND FinAid.FundCode NOT IN ('8518', 'AMERC')
+          AND FinAid.FundCode NOT LIKE 'C%'
+          AND FinAid.FundCode <> 'NSL'
+  ) FinAid6 ON FinAid6.NSCPidm = MasterList.NSCPidm
+            AND FinAid6.NSCCIPCode = MasterList.NSCCIPCode
+            AND FinAid6.NSCCredentialCode = MasterList.NSCCredentialCode
+GROUP BY MasterList.NSCRecordType
+       , MasterList.OPEID
+       , MasterList.NSCAidYear
+       , MasterList.NSCSSN
+       , MasterList.NSCPidm
+       , MasterList.NSCStudentID
+       , MasterList.NSCStudentFirstName
+       , MasterList.NSCStudentLastName
+       , MasterList.NSCCIPCode
+       , MasterList.NSCCredentialCode
+       , CASE
+           WHEN FinAid6.NSCPidm IS NULL
+             THEN 'T'
+           ELSE 'N'
+         END
+)
+, MergingCIPCodes AS
+(
+SELECT FVTList.NSCRecordType
+       , FVTList.NSCAidYear
+       , FVTList.NSCPidm
+       , FVTList.NSCCredentialCode
+       , SUM(FVTList.TotalPrivateLoans) TotalPrivateLoans
+       , SUM(FVTList.TotalInstDebt) TotalInstDebt
+       , SUM(FVTList.TotalTuitionAndFeesAssessed) TotalTuitionAndFeesAssessed
+       , SUM(FVTList.TotalBooksSuppliesEquipment) TotalBooksSuppliesEquipment
+       , SUM(FVTList.TotalGrantsAndScholarships) TotalGrantsAndScholarships
+       , SUM(FVTList.AnnualCOA) AnnualCOA
+       , SUM(FVTList.AnnualTuitionAndFeesAssessed) AnnualTuitionAndFeesAssessed
+       , SUM(FVTList.AnnualBooksSuppliesEquipment) AnnualBooksSuppliesEquipment
+       , SUM(FVTList.AnnualHousingAndFood) AnnualHousingAndFood
+       , SUM(FVTList.AnnualInstGrantsAndScholarships) AnnualInstGrantsAndScholarships
+       , SUM(FVTList.AnnualOtherStateTribalPrivateGrantsAndScholarships) AnnualOtherStateTribalPrivateGrantsAndScholarships
+       , SUM(FVTList.AnnualPrivateLoanAmount) AnnualPrivateLoanAmount
+FROM FVTList
+GROUP BY FVTList.NSCRecordType
+       , FVTList.NSCAidYear
+       , FVTList.NSCPidm
+       , FVTList.NSCCredentialCode
+)
+, AddingCIPCodesBack AS
+(
+SELECT FVTList.NSCRecordType
+       , FVTList.OPEID
+       , FVTList.NSCAidYear
+       , FVTList.NSCSSN
+       , FVTList.NSCPidm
+       , FVTList.NSCStudentID
+       , FVTList.NSCStudentFirstName
+       , FVTList.NSCStudentLastName
+       , FVTList.NSCCIPCode
+       , FVTList.NSCCredentialCode
+       , MergingCIPCodes.TotalPrivateLoans
+       , MergingCIPCodes.TotalInstDebt
+       , MergingCIPCodes.TotalTuitionAndFeesAssessed
+       , MergingCIPCodes.TotalBooksSuppliesEquipment
+       , MergingCIPCodes.TotalGrantsAndScholarships
+       , MergingCIPCodes.AnnualCOA
+       , MergingCIPCodes.AnnualTuitionAndFeesAssessed
+       , MergingCIPCodes.AnnualBooksSuppliesEquipment
+       , MergingCIPCodes.AnnualHousingAndFood
+       , MergingCIPCodes.AnnualInstGrantsAndScholarships
+       , MergingCIPCodes.AnnualOtherStateTribalPrivateGrantsAndScholarships
+       , MergingCIPCodes.AnnualPrivateLoanAmount
+       , FVTList.InvalidFlag
+FROM FVTList
+LEFT JOIN MergingCIPCodes
+     ON MergingCIPCodes.NSCRecordType = FVTList.NSCRecordType
+     AND MergingCIPCodes.NSCAidYear = FVTList.NSCAidYear
+     AND MergingCIPCodes.NSCPidm = FVTList.NSCPidm
+     AND MergingCIPCodes.NSCCredentialCode = FVTList.NSCCredentialCode
+)
+, CalculatingMultiplier AS
+(
+SELECT NSCRecordType
+       , NSCAidYear
+       , NSCPidm
+       , NSCCredentialCode
+       , ROUND(1 / COUNT(*), 2) Multiplier
+FROM AddingCIPCodesBack
+GROUP BY NSCRecordType
+       , NSCAidYear
+       , NSCPidm
+       , NSCCredentialCode
+)
+
+SELECT AddingCIPCodesBack.NSCRecordType
+       , AddingCIPCodesBack.OPEID
+       , AddingCIPCodesBack.NSCAidYear
+       , AddingCIPCodesBack.NSCSSN
+       , AddingCIPCodesBack.NSCPidm
+       , AddingCIPCodesBack.NSCStudentID
+       , AddingCIPCodesBack.NSCStudentFirstName
+       , AddingCIPCodesBack.NSCStudentLastName
+       , AddingCIPCodesBack.NSCCIPCode
+       , AddingCIPCodesBack.NSCCredentialCode
+       , ROUND(AddingCIPCodesBack.TotalPrivateLoans * CalculatingMultiplier.Multiplier, 0) TotalPrivateLoans
+       , ROUND(AddingCIPCodesBack.TotalInstDebt  * CalculatingMultiplier.Multiplier, 0) TotalInstDebt
+       , ROUND(AddingCIPCodesBack.TotalTuitionAndFeesAssessed * CalculatingMultiplier.Multiplier, 0) TotalTuitionAndFeesAssessed
+       , ROUND(AddingCIPCodesBack.TotalBooksSuppliesEquipment * CalculatingMultiplier.Multiplier, 0) TotalBooksSuppliesEquipment
+       , ROUND(AddingCIPCodesBack.TotalGrantsAndScholarships * CalculatingMultiplier.Multiplier, 0) TotalGrantsAndScholarships
+       , ROUND(AddingCIPCodesBack.AnnualCOA * CalculatingMultiplier.Multiplier, 0) AnnualCOA
+       , ROUND(AddingCIPCodesBack.AnnualTuitionAndFeesAssessed * CalculatingMultiplier.Multiplier, 0) AnnualTuitionAndFeesAssessed
+       , ROUND(AddingCIPCodesBack.AnnualBooksSuppliesEquipment * CalculatingMultiplier.Multiplier, 0) AnnualBooksSuppliesEquipment
+       , ROUND(AddingCIPCodesBack.AnnualHousingAndFood * CalculatingMultiplier.Multiplier, 0) AnnualHousingAndFood
+       , ROUND(AddingCIPCodesBack.AnnualInstGrantsAndScholarships * CalculatingMultiplier.Multiplier, 0) AnnualInstGrantsAndScholarships
+       , ROUND(AddingCIPCodesBack.AnnualOtherStateTribalPrivateGrantsAndScholarships * CalculatingMultiplier.Multiplier, 0) AnnualOtherStateTribalPrivateGrantsAndScholarships
+       , ROUND(AddingCIPCodesBack.AnnualPrivateLoanAmount * CalculatingMultiplier.Multiplier, 0) AnnualPrivateLoanAmount
+       , AddingCIPCodesBack.InvalidFlag
+FROM AddingCIPCodesBack
+LEFT JOIN CalculatingMultiplier
+     ON CalculatingMultiplier.NSCRecordTYpe = AddingCIPCodesBack.NSCRecordType
+     AND CalculatingMultiplier.NSCAidYear = AddingCIPCodesBack.NSCAidYear
+     AND CalculatingMultiplier.NSCPidm = AddingCIPCodesBack.NSCPidm
+     AND CalculatingMultiplier.NSCCredentialCode = AddingCIPCodesBack.NSCCredentialCode
+
